@@ -1,5 +1,5 @@
 import mss
-import pygetwindow as gw
+import pywinctl as gw
 import cv2
 import numpy as np
 import time
