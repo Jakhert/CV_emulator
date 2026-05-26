@@ -13,7 +13,7 @@ BORDER = 12
 
 IMSHOW_WIN_NAME = "Frame view"
 IMSHOW_SCORE_WIN_NAME = "Score view"
-SCORE_POS = (0.81, 0.105, 0.942, 0.145) # x1, y1, x2, y2
+SCORE_POS = (0.74, 0.105, 0.942, 0.145) # x1, y1, x2, y2
 
 def get_window():
     win_lst = gw.getWindowsWithTitle(TARGET_TITLE, condition=gw.Re.CONTAINS, flags=gw.Re.IGNORECASE)
