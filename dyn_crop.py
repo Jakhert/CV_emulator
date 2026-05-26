@@ -6,9 +6,14 @@ import sys
 from typing import Sequence
 
 TARGET_TITLE = 'RetroArch'
-TITLE_BAR_H = 75 # to są parametry dla mojego monitora 4k, normalnie trochę mniej, możńa zrocić mapę tego w zależnośći od res / OS
-BORDER = 14
+# TITLE_BAR_H = 75 # to są parametry dla mojego monitora 4k, normalnie trochę mniej, możńa zrocić mapę tego w zależnośći od res / OS
+# BORDER = 14
+TITLE_BAR_H = 65
+BORDER = 12
+
 IMSHOW_WIN_NAME = "Frame view"
+IMSHOW_SCORE_WIN_NAME = "Score view"
+SCORE_POS = (0.81, 0.105, 0.942, 0.145) # x1, y1, x2, y2
 
 def get_window():
     win_lst = gw.getWindowsWithTitle(TARGET_TITLE, condition=gw.Re.CONTAINS, flags=gw.Re.IGNORECASE)
@@ -79,6 +84,12 @@ def main() -> None:
             while True:
                 im = cropped_image(sct)
                 cv2.imshow(IMSHOW_WIN_NAME, im)
+                height, width = im.shape[:2]
+                x1 = int(SCORE_POS[0] * width)
+                y1 = int(SCORE_POS[1] * height)
+                x2 = int(SCORE_POS[2] * width)
+                y2 = int(SCORE_POS[3] * height)
+                cv2.imshow(IMSHOW_SCORE_WIN_NAME, im[y1:y2, x1:x2])
                 key = cv2.waitKey(1)
 
         except KeyboardInterrupt:
