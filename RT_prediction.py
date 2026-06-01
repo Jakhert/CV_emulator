@@ -13,8 +13,8 @@ os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
 TARGET_TITLE = "RetroArch"
 
-TITLE_BAR_H = 65
-BORDER = 12
+TITLE_BAR_H = 75 #65
+BORDER = 14 #12
 
 IMSHOW_WIN_NAME = "Frame view"
 IMSHOW_SCORE_WIN_NAME = "Score view"
@@ -22,16 +22,14 @@ IMSHOW_SCORE_WIN_NAME = "Score view"
 # x1, y1, x2, y2
 SCORE_POS = (0.68, 0.105, 0.942, 0.145)
 
-DIGIT_WIDTH = 35
+DIGIT_WIDTH = 39
 RIGHT_MARGIN = 0
 NUM_DIGITS = 7
-PIXEL_COMPENSATION = -2
-LEFT_OFFSET = 16
 
 MODEL_PATH = "retro_digits_model.keras"
 TEST_DIR = "digits/test"
-IMG_HEIGHT = 32
-IMG_WIDTH = 32
+DIGIT_IMG_SIZE = (32, 32) # w, h
+SCORE_IMG_SIZE = (320, 32)
 
 CONFIDENCE_THRESHOLD = 80.0
 
@@ -96,9 +94,8 @@ def load_class_names(test_dir: str) -> list[str]:
 
 def preprocess_digit(img_bgr: np.ndarray) -> np.ndarray:
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    resized = cv2.resize(gray, (IMG_WIDTH, IMG_HEIGHT))
     img_array = cv2.imread  # tylko żeby nie dać przypadkowo zły typ w edytorze
-    img_array = cv2.resize(gray, (IMG_WIDTH, IMG_HEIGHT)).astype(np.float32)
+    img_array = cv2.resize(gray, DIGIT_IMG_SIZE).astype(np.float32)
     img_array = np.expand_dims(img_array, axis=-1)  # (32, 32, 1)
     return img_array
 
@@ -151,7 +148,7 @@ def main() -> None:
 
         return cv2.cvtColor(cropped_bgra, cv2.COLOR_BGRA2BGR)
 
-    with mss.mss() as sct:
+    with mss.MSS() as sct:
         try:
             while True:
                 im = cropped_image(sct)
@@ -166,82 +163,48 @@ def main() -> None:
                 x2 = int(SCORE_POS[2] * width)
                 y2 = int(SCORE_POS[3] * height)
 
-                score_img = im[y1:y2, x1:x2]
-                score_display = score_img.copy()
-
-                # offset z lewej
-                score_offset = score_img[:, LEFT_OFFSET:]
-                sh, sw = score_offset.shape[:2]
+                # resize do konkretnych wymiarów
+                score_img = cv2.resize(im[y1:y2, x1:x2], SCORE_IMG_SIZE)
 
                 digit_crops = []
                 digit_boxes = []
-
-                # rysowanie ramek digitów
                 for i in range(NUM_DIGITS):
-                    shift = i * (DIGIT_WIDTH + PIXEL_COMPENSATION)
-
-                    x_end = sw - RIGHT_MARGIN - shift
+                    x_end = SCORE_IMG_SIZE[0] - i * DIGIT_WIDTH - RIGHT_MARGIN
                     x_start = x_end - DIGIT_WIDTH
-
                     if x_start < 0:
                         break
-
-                    digit_bgr = score_offset[0:sh, x_start:x_end]
-
-                    if digit_bgr.size == 0:
-                        continue
-
-                    processed_digit = preprocess_digit(digit_bgr)
-                    digit_crops.append(processed_digit)
+                    digit_bgr = score_img[:, x_end-DIGIT_WIDTH:x_end]
+                    digit = preprocess_digit(digit_bgr)
+                    digit_crops.append(digit)
                     digit_boxes.append((x_start, x_end))
 
-                if digit_crops:
+                if digit_boxes:
                     batch_array = np.array(digit_crops)
                     predictions = model.predict(batch_array, verbose=0)
+                    predicted_labels = []
 
-                    current_score_chars = []
-
-                    for i, pred in enumerate(predictions):
-                        predicted_class_idx = int(np.argmax(pred))
-                        predicted_label = class_names[predicted_class_idx]
-                        confidence = float(np.max(pred) * 100.0)
-
-                        x_start, x_end = digit_boxes[i]
+                    for pred, (x_start, x_end) in zip(predictions, digit_boxes):
+                        confidence = float(np.max(pred) * 100)
                         color = (0, 255, 0) if confidence >= CONFIDENCE_THRESHOLD else (0, 0, 255)
 
                         cv2.rectangle(
-                            score_display,
-                            (LEFT_OFFSET + x_start, 0),
-                            (LEFT_OFFSET + x_end, sh),
-                            color,
-                            2
+                            score_img, 
+                            (x_start, 0), 
+                            (x_end, SCORE_IMG_SIZE[1]),
+                            color, 2
                         )
 
-                        cv2.putText(
-                            score_display,
-                            f"{i + 1}",
-                            (LEFT_OFFSET + x_start, 15),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.5,
-                            color,
-                            1
-                        )
-
-                        # do wyniku bierzemy tylko pewne cyfry
                         if confidence >= CONFIDENCE_THRESHOLD:
-                            current_score_chars.append(predicted_label)
+                            pred_label = class_names[int(np.argmax(pred))]
+                            predicted_labels.append(pred_label)
 
-                    current_score_chars.reverse()
-                    current_score = "".join(current_score_chars)
-
+                    predicted_labels.reverse()
+                    current_score = "".join(predicted_labels)
                     if current_score != last_score_str:
-                        if current_score:
-                            print(f"Estimated score: {current_score}")
-                        else:
-                            print("Estimated score: <brak>")
+                        print(f"Estimated score: {current_score if current_score else "<brak>"}")
                         last_score_str = current_score
 
-                cv2.imshow(IMSHOW_SCORE_WIN_NAME, score_display)
+                cv2.imshow(IMSHOW_SCORE_WIN_NAME, score_img)
 
                 key = cv2.waitKey(1)
                 if key == ord("q"):
