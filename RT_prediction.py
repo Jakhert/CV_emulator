@@ -6,6 +6,7 @@ import cv2
 import mss
 import numpy as np
 import pywinctl as gw
+import time
 import tensorflow as tf
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
@@ -31,7 +32,8 @@ TEST_DIR = "digits/test"
 DIGIT_IMG_SIZE = (32, 32) # w, h
 SCORE_IMG_SIZE = (320, 32)
 
-CONFIDENCE_THRESHOLD = 80.0
+CONFIDENCE_THRESHOLD = 96.0
+STABILITY_WINDOW_SEC = 0.2
 
 
 def get_window():
@@ -94,7 +96,7 @@ def load_class_names(test_dir: str) -> list[str]:
 
 def preprocess_digit(img_bgr: np.ndarray) -> np.ndarray:
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    img_array = cv2.imread  # tylko żeby nie dać przypadkowo zły typ w edytorze
+    img_array = cv2.imread
     img_array = cv2.resize(gray, DIGIT_IMG_SIZE).astype(np.float32)
     img_array = np.expand_dims(img_array, axis=-1)  # (32, 32, 1)
     return img_array
@@ -124,14 +126,20 @@ def main() -> None:
 
     last_score_str = ""
 
+    # --- NOWE ZMIENNE DO STABILIZACJI ---
+    pending_score_str = ""
+    pending_score_time = 0.0
+
+    # ------------------------------------
+
     def cropped_image(sct: mss.MSS) -> cv2.typing.MatLike:
+        # ... (ta funkcja pozostaje bez zmian) ...
         nonlocal win_bbox
         nonlocal size_dict
         nonlocal bounding_rect
 
         recalc_bounding_rect: bool = False
 
-        # handle move / resize
         if win_bbox != win.bbox:
             win_bbox = win.bbox
             recalc_bounding_rect = True
@@ -157,13 +165,11 @@ def main() -> None:
 
                 height, width = im.shape[:2]
 
-                # wycinanie score area
                 x1 = int(SCORE_POS[0] * width)
                 y1 = int(SCORE_POS[1] * height)
                 x2 = int(SCORE_POS[2] * width)
                 y2 = int(SCORE_POS[3] * height)
 
-                # resize do konkretnych wymiarów
                 score_img = cv2.resize(im[y1:y2, x1:x2], SCORE_IMG_SIZE)
 
                 digit_crops = []
@@ -173,7 +179,17 @@ def main() -> None:
                     x_start = x_end - DIGIT_WIDTH
                     if x_start < 0:
                         break
-                    digit_bgr = score_img[:, x_end-DIGIT_WIDTH:x_end]
+
+                    digit_bgr = score_img[:, x_end - DIGIT_WIDTH:x_end]
+
+                    gray_digit = cv2.cvtColor(digit_bgr, cv2.COLOR_BGR2GRAY)
+
+                    _, thresh = cv2.threshold(gray_digit, 150, 255, cv2.THRESH_BINARY)
+                    active_pixels = cv2.countNonZero(thresh)
+                    if active_pixels < 30:
+                        continue
+                    # -------------------------------------------------
+
                     digit = preprocess_digit(digit_bgr)
                     digit_crops.append(digit)
                     digit_boxes.append((x_start, x_end))
@@ -188,8 +204,8 @@ def main() -> None:
                         color = (0, 255, 0) if confidence >= CONFIDENCE_THRESHOLD else (0, 0, 255)
 
                         cv2.rectangle(
-                            score_img, 
-                            (x_start, 0), 
+                            score_img,
+                            (x_start, 0),
                             (x_end, SCORE_IMG_SIZE[1]),
                             color, 2
                         )
@@ -200,9 +216,21 @@ def main() -> None:
 
                     predicted_labels.reverse()
                     current_score = "".join(predicted_labels)
-                    if current_score != last_score_str:
-                        print(f"Estimated score: {current_score if current_score else "<brak>"}")
-                        last_score_str = current_score
+
+                    # --- NOWA LOGIKA ZABEZPIECZAJĄCA (DEBOUNCING) ---
+                    if current_score == pending_score_str:
+                        # Wynik odczytany z klatki jest taki sam jak poprzednio.
+                        # Sprawdzamy, czy minęło już wystarczająco dużo czasu (0.2s).
+                        if time.time() - pending_score_time >= STABILITY_WINDOW_SEC:
+                            # Wynik się ustabilizował! Sprawdzamy, czy różni się od głównego zapisanego wyniku.
+                            if current_score != last_score_str:
+                                print(f"Estimated score: {current_score if current_score else '<brak>'}")
+                                last_score_str = current_score
+                    else:
+                        # Wynik z obecnej klatki różni się od oczekującego - resetujemy okno czasowe.
+                        pending_score_str = current_score
+                        pending_score_time = time.time()
+                    # -------------------------------------------------
 
                 cv2.imshow(IMSHOW_SCORE_WIN_NAME, score_img)
 
