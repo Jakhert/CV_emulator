@@ -126,11 +126,8 @@ def main() -> None:
 
     last_score_str = ""
 
-    # --- NOWE ZMIENNE DO STABILIZACJI ---
     pending_score_str = ""
     pending_score_time = 0.0
-
-    # ------------------------------------
 
     def cropped_image(sct: mss.MSS) -> cv2.typing.MatLike:
         # ... (ta funkcja pozostaje bez zmian) ...
@@ -217,17 +214,12 @@ def main() -> None:
                     predicted_labels.reverse()
                     current_score = "".join(predicted_labels)
 
-                    # --- NOWA LOGIKA ZABEZPIECZAJĄCA (DEBOUNCING) ---
                     if current_score == pending_score_str:
-                        # Wynik odczytany z klatki jest taki sam jak poprzednio.
-                        # Sprawdzamy, czy minęło już wystarczająco dużo czasu (0.2s).
                         if time.time() - pending_score_time >= STABILITY_WINDOW_SEC:
-                            # Wynik się ustabilizował! Sprawdzamy, czy różni się od głównego zapisanego wyniku.
                             if current_score != last_score_str:
                                 print(f"Estimated score: {current_score if current_score else '<brak>'}")
                                 last_score_str = current_score
                     else:
-                        # Wynik z obecnej klatki różni się od oczekującego - resetujemy okno czasowe.
                         pending_score_str = current_score
                         pending_score_time = time.time()
                     # -------------------------------------------------
